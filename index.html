@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#fafaf9">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Workout">
+<title>Workout Logger</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #1c1917;
+    background: #fafaf9;
+    min-height: 100%;
+  }
+  body { padding-bottom: 40px; }
+  .wrap { max-width: 480px; margin: 0 auto; }
+  header { padding: 20px 18px 14px; }
+  h1 { font-size: 21px; font-weight: 700; letter-spacing: -0.01em; }
+  .sub { font-size: 12.5px; color: #78716c; margin-top: 3px; }
+  .tabs {
+    display: flex; gap: 6px; padding: 0 12px 8px;
+    overflow-x: auto; -webkit-overflow-scrolling: touch;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab {
+    flex: 0 0 auto; padding: 8px 13px; border-radius: 999px;
+    border: 1px solid #e7e5e4; background: #fff; color: #57534e;
+    font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  }
+  .tab.active { color: #fff; }
+  .meta {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 16px 0; font-size: 11.5px; color: #a8a29e;
+  }
+  .saved { color: #16a34a; font-weight: 600; opacity: 0; transition: opacity .3s; }
+  .saved.show { opacity: 1; }
+  .card {
+    background: #fff; margin: 12px 12px 0; border-radius: 14px;
+    border: 1px solid #ececea; overflow: hidden; padding-bottom: 8px;
+  }
+  .ex-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 12px 14px 8px;
+  }
+  .ex-name { font-size: 15px; font-weight: 600; }
+  .ex-target { font-size: 12px; color: #a8a29e; font-weight: 500; }
+  .set-row { display: flex; align-items: center; gap: 8px; padding: 6px 14px; }
+  .set-label { font-size: 12px; color: #a8a29e; width: 42px; font-weight: 600; }
+  .inp {
+    flex: 1; min-width: 0; padding: 10px; font-size: 16px;
+    border: 1px solid #e7e5e4; border-radius: 9px; background: #fafaf9;
+    color: #1c1917; outline: none; text-align: center;
+  }
+  .inp:focus { border-color: #a8a29e; background: #fff; }
+  .banner {
+    margin: 12px 12px 0; padding: 16px; border-radius: 14px;
+    background: #f5f3ff; border: 1px solid #e9d5ff; color: #6b21a8; font-size: 14px;
+  }
+  .banner ul { margin: 8px 0 0; padding-left: 18px; }
+  .banner li { margin: 5px 0; line-height: 1.5; }
+  .rest {
+    margin: 12px 12px 0; padding: 20px 16px; border-radius: 14px;
+    background: #f5f5f4; border: 1px solid #e7e5e4; color: #57534e;
+    font-size: 14px; text-align: center;
+  }
+  .foot {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 16px 0; font-size: 11.5px; color: #a8a29e;
+  }
+  .reset {
+    background: none; border: none; color: #a8a29e; font-size: 12px;
+    text-decoration: underline; cursor: pointer; padding: 4px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Workout Logger</h1>
+    <div class="sub">Beginner muscle-building · 4 lift days + recovery</div>
+  </header>
+  <div class="tabs" id="tabs"></div>
+  <div class="meta">
+    <span id="meta-text"></span>
+    <span class="saved" id="saved">✓ Saved</span>
+  </div>
+  <div id="content"></div>
+  <div class="foot">
+    <span>Entries save to this device.</span>
+    <button class="reset" id="reset">Reset week</button>
+  </div>
+</div>
+
+<script>
+const PROGRAM = {
+  mon: { name: "Monday", focus: "Upper Body A", accent: "#2563eb", exercises: [
+    { id: "m1", name: "DB bench press", target: "3 × 8-10", sets: 3 },
+    { id: "m2", name: "One-arm DB row", target: "3 × 10/side", sets: 3 },
+    { id: "m3", name: "DB shoulder press", target: "3 × 10", sets: 3 },
+    { id: "m4", name: "DB bicep curl", target: "2 × 12", sets: 2 },
+    { id: "m5", name: "DB skull crusher", target: "2 × 12", sets: 2 } ] },
+  tue: { name: "Tuesday", focus: "Lower Body A", accent: "#16a34a", exercises: [
+    { id: "t1", name: "Goblet squat", target: "3 × 10-12", sets: 3 },
+    { id: "t2", name: "DB Romanian deadlift", target: "3 × 10", sets: 3 },
+    { id: "t3", name: "DB walking lunge", target: "3 × 10/side", sets: 3 },
+    { id: "t4", name: "DB calf raise", target: "3 × 15", sets: 3 },
+    { id: "t5", name: "Plank", target: "3 × 40s", sets: 3 } ] },
+  wed: { name: "Wednesday", focus: "Active Recovery", accent: "#9333ea", recovery: [
+    "Kettlebell swings — 5 × 15", "Mobility / stretching — 15 min",
+    "Optional brisk walk", "Light core work" ] },
+  thu: { name: "Thursday", focus: "Upper Body B", accent: "#2563eb", exercises: [
+    { id: "h1", name: "Incline DB press", target: "3 × 8-10", sets: 3 },
+    { id: "h2", name: "DB chest-supported row", target: "3 × 10", sets: 3 },
+    { id: "h3", name: "DB lateral raise", target: "3 × 12", sets: 3 },
+    { id: "h4", name: "Hammer curl", target: "2 × 12", sets: 2 },
+    { id: "h5", name: "DB overhead extension", target: "2 × 12", sets: 2 } ] },
+  fri: { name: "Friday", focus: "Lower Body B", accent: "#16a34a", exercises: [
+    { id: "f1", name: "DB Bulgarian split squat", target: "3 × 8/side", sets: 3 },
+    { id: "f2", name: "DB deadlift", target: "3 × 10", sets: 3 },
+    { id: "f3", name: "DB step-up", target: "3 × 10/side", sets: 3 },
+    { id: "f4", name: "DB hip thrust", target: "3 × 12", sets: 3 },
+    { id: "f5", name: "Lying leg raise", target: "3 × 12", sets: 3 } ] },
+  sat: { name: "Weekend", focus: "Full Rest", accent: "#78716c", rest: true }
+};
+const DAY_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat"];
+
+function todayKey() {
+  const map = { 1:"mon", 2:"tue", 3:"wed", 4:"thu", 5:"fri", 6:"sat", 0:"sat" };
+  return map[new Date().getDay()];
+}
+function weekId() {
+  const d = new Date();
+  const onejan = new Date(d.getFullYear(), 0, 1);
+  const week = Math.ceil(((d - onejan) / 86400000 + onejan.getDay() + 1) / 7);
+  return d.getFullYear() + "-w" + week;
+}
+
+const WK = weekId();
+const STORAGE_KEY = "worklog:" + WK;
+let log = {};
+let activeDay = todayKey();
+
+function loadLog() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    log = raw ? JSON.parse(raw) : {};
+  } catch (e) { log = {}; }
+}
+function saveLog() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(log));
+    const s = document.getElementById("saved");
+    s.classList.add("show");
+    clearTimeout(window._st);
+    window._st = setTimeout(() => s.classList.remove("show"), 1100);
+  } catch (e) { console.error("save failed", e); }
+}
+
+function onInput(exId, setIdx, field, value) {
+  if (!log[exId]) log[exId] = {};
+  if (!log[exId][setIdx]) log[exId][setIdx] = {};
+  log[exId][setIdx][field] = value;
+  saveLog();
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;" }[c]));
+}
+
+function renderTabs() {
+  const el = document.getElementById("tabs");
+  el.innerHTML = "";
+  DAY_ORDER.forEach(k => {
+    const b = document.createElement("button");
+    b.className = "tab" + (k === activeDay ? " active" : "");
+    b.textContent = PROGRAM[k].name;
+    if (k === activeDay) b.style.background = PROGRAM[k].accent;
+    if (k === activeDay) b.style.borderColor = PROGRAM[k].accent;
+    b.onclick = () => { activeDay = k; render(); };
+    el.appendChild(b);
+  });
+}
+
+function render() {
+  renderTabs();
+  const day = PROGRAM[activeDay];
+  document.getElementById("meta-text").textContent =
+    day.focus + " · week " + WK.replace(/^\d+-w/, "");
+  const c = document.getElementById("content");
+  c.innerHTML = "";
+
+  if (day.rest) {
+    c.innerHTML = '<div class="rest"><strong>Full rest — Saturday &amp; Sunday.</strong>'
+      + '<div style="margin-top:6px">Muscle is built during recovery. Light activity is fine. '
+      + 'Prioritise 7–9 hours of sleep.</div></div>';
+    return;
+  }
+  if (day.recovery) {
+    let li = day.recovery.map(r => "<li>" + esc(r) + "</li>").join("");
+    c.innerHTML = '<div class="banner"><strong>Active recovery day</strong><ul>' + li + '</ul></div>';
+    return;
+  }
+
+  day.exercises.forEach(ex => {
+    const card = document.createElement("div");
+    card.className = "card";
+    let html = '<div class="ex-head"><span class="ex-name">' + esc(ex.name)
+      + '</span><span class="ex-target">' + esc(ex.target) + '</span></div>';
+    for (let i = 0; i < ex.sets; i++) {
+      const entry = (log[ex.id] && log[ex.id][i]) || {};
+      html += '<div class="set-row"><span class="set-label">Set ' + (i+1) + '</span>'
+        + '<input class="inp" inputmode="decimal" placeholder="kg" '
+        + 'data-ex="' + ex.id + '" data-set="' + i + '" data-field="weight" '
+        + 'value="' + esc(entry.weight || "") + '">'
+        + '<input class="inp" inputmode="numeric" placeholder="reps" '
+        + 'data-ex="' + ex.id + '" data-set="' + i + '" data-field="reps" '
+        + 'value="' + esc(entry.reps || "") + '"></div>';
+    }
+    card.innerHTML = html;
+    c.appendChild(card);
+  });
+
+  c.querySelectorAll("input.inp").forEach(inp => {
+    inp.addEventListener("input", e => {
+      onInput(e.target.dataset.ex, e.target.dataset.set,
+              e.target.dataset.field, e.target.value);
+    });
+  });
+}
+
+document.getElementById("reset").onclick = () => {
+  if (!confirm("Clear all entries for this week?")) return;
+  log = {};
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({})); } catch (e) {}
+  render();
+};
+
+loadLog();
+render();
+</script>
+</body>
+</html>
