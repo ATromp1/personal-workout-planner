@@ -10,6 +10,7 @@ import { openCustomFoodModal } from "./intake/customFoodModal.js";
 import { openSearchModal } from "./intake/searchModal.js";
 import { openScanModal } from "./intake/scanModal.js";
 import { openPortionEditModal } from "./intake/portionEditModal.js";
+import { showUndoToast } from "../components/toast.js";
 
 export function renderIntake(root, rerender) {
   const items = todaysIntake();
@@ -92,10 +93,17 @@ export function renderIntake(root, rerender) {
     btn.onclick = () => {
       const i = Number(btn.dataset.i);
       const k = dateKey();
+      const removed = STATE.intake[k][i];
       STATE.intake[k].splice(i, 1);
       if (STATE.intake[k].length === 0) delete STATE.intake[k];
       persist("intake");
       rerender();
+      showUndoToast("Removed " + removed.name, () => {
+        if (!STATE.intake[k]) STATE.intake[k] = [];
+        STATE.intake[k].splice(i, 0, removed);
+        persist("intake");
+        rerender();
+      });
     };
   });
   log.querySelectorAll("[data-edit]").forEach(btn => {

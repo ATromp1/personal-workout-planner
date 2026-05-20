@@ -238,6 +238,24 @@ h1 { font-size: 21px; font-weight: 700; letter-spacing: -0.01em; }
 .remaining { font-size: 11.5px; color: #78716c; margin-top: 4px; font-weight: 500; }
 .remaining.over { color: #b45309; }
 
+/* Undo toast — sits above the tab bar, slides up on show. */
+.toast {
+  position: fixed; left: 50%; bottom: calc(80px + env(safe-area-inset-bottom));
+  transform: translate(-50%, 12px); opacity: 0;
+  max-width: 360px; width: calc(100% - 24px);
+  background: #1c1917; color: #fafaf9;
+  border-radius: 12px; padding: 12px 14px;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  font-size: 13px; box-shadow: 0 6px 20px rgba(0,0,0,0.18);
+  transition: transform .25s, opacity .25s; z-index: 200;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.toast-msg { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.toast-undo {
+  background: none; border: none; color: #fbbf24; font-weight: 700;
+  font-size: 13px; cursor: pointer; padding: 4px 8px;
+}
+
 .add-row { display: flex; gap: 8px; padding: 8px 14px 12px; }
 .btn {
   padding: 10px 14px; border-radius: 9px; border: 1px solid #1c1917;
@@ -262,6 +280,20 @@ svg.chart { width: 100%; height: 160px; display: block; }
 .stat-row { display: flex; justify-content: space-between; padding: 12px 16px; border-top: 1px solid #f5f5f4; font-size: 14px; }
 .stat-row:first-child { border-top: none; }
 .stat-row b { font-weight: 700; }
+
+.strength-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px; border-top: 1px solid #f5f5f4;
+  font-size: 13.5px;
+}
+.strength-row:first-of-type { border-top: none; }
+.strength-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #1c1917; }
+.strength-spark { flex: 0 0 80px; width: 80px; height: 22px; }
+.strength-now { flex: 0 0 auto; color: #57534e; font-size: 13px; }
+.strength-now b { color: #1c1917; font-weight: 700; }
+.strength-delta { font-size: 11.5px; font-weight: 600; margin-left: 4px; }
+.strength-delta.up { color: #16a34a; }
+.strength-delta.down { color: #b91c1c; }
 
 .empty { text-align: center; padding: 28px 16px; color: #a8a29e; font-size: 13px; }
 

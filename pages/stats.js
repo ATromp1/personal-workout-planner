@@ -3,7 +3,55 @@ import {
   STATE, esc, el, dateKey, isoToDate, avg,
   dayTotals, persist
 } from "../core/state.js";
+import { findExercise } from "../data/program.js";
 import { openModal, closeModal } from "../components/modal.js";
+import { showUndoToast } from "../components/toast.js";
+
+/* Build the export payload from the four persisted slices of STATE. */
+function buildBackup() {
+  return {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    workoutLog: STATE.workoutLog,
+    intake: STATE.intake,
+    weights: STATE.weights,
+    customFoods: STATE.customFoods
+  };
+}
+
+/* True if the parsed object looks like a backup we made. We only check
+   the four top-level keys exist with the right types — fine for catching
+   "you imported the wrong file" without rejecting future schema bumps. */
+function looksLikeBackup(b) {
+  return b && typeof b === "object"
+    && b.workoutLog && typeof b.workoutLog === "object"
+    && b.intake && typeof b.intake === "object"
+    && Array.isArray(b.weights)
+    && Array.isArray(b.customFoods);
+}
+
+function applyBackup(b) {
+  STATE.workoutLog = b.workoutLog;
+  STATE.intake = b.intake;
+  STATE.weights = b.weights;
+  STATE.customFoods = b.customFoods;
+  persist("workoutLog");
+  persist("intake");
+  persist("weights");
+  persist("customFoods");
+}
+
+function downloadJSON(data, filename) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 export function renderStats(root, rerender) {
   const weightCard = document.createElement("div");
@@ -65,8 +113,16 @@ export function renderStats(root, rerender) {
   document.getElementById("add-weight").onclick = () => openWeightModal(rerender);
   root.querySelectorAll("[data-w-del]").forEach(b => {
     b.onclick = () => {
-      STATE.weights = STATE.weights.filter(w => w.date !== b.dataset.wDel);
+      const date = b.dataset.wDel;
+      const removed = STATE.weights.find(w => w.date === date);
+      if (!removed) return;
+      STATE.weights = STATE.weights.filter(w => w.date !== date);
       persist("weights"); rerender();
+      showUndoToast("Removed " + date + " (" + removed.kg + " kg)", () => {
+        STATE.weights.push(removed);
+        STATE.weights.sort((a,b) => a.date.localeCompare(b.date));
+        persist("weights"); rerender();
+      });
     };
   });
 
@@ -95,6 +151,127 @@ export function renderStats(root, rerender) {
     ));
   }
   root.appendChild(intakeCard);
+
+  const strengthCard = renderStrengthCard();
+  if (strengthCard) root.appendChild(strengthCard);
+
+  root.appendChild(renderBackupCard(rerender));
+}
+
+/* Walk workoutLog and collect, per exercise, a chronological series of
+   logged weights (one point per week — the value the user typed for that
+   exercise that week). Exercises that were never loaded or were 0kg only
+   are skipped. Returns Map<exId, { name, dayKey, points: [{wk, weight}] }>. */
+function buildStrengthSeries() {
+  const series = new Map();
+  const weeks = Object.keys(STATE.workoutLog).sort();
+  for (const wk of weeks) {
+    const days = STATE.workoutLog[wk] || {};
+    for (const dayKey of Object.keys(days)) {
+      const exs = days[dayKey] || {};
+      for (const exId of Object.keys(exs)) {
+        const entry = exs[exId];
+        const w = Number(entry && entry.weight);
+        if (!isFinite(w) || w <= 0) continue;
+        if (!series.has(exId)) {
+          const def = findExercise(dayKey, exId);
+          series.set(exId, { name: def ? def.name : exId, dayKey, points: [] });
+        }
+        series.get(exId).points.push({ wk, weight: w });
+      }
+    }
+  }
+  return series;
+}
+
+function renderStrengthCard() {
+  const series = buildStrengthSeries();
+  const items = [...series.values()].filter(s => s.points.length >= 2);
+  if (items.length === 0) return null;
+
+  // Most recently active exercises first — sort by latest week descending.
+  items.sort((a, b) => b.points[b.points.length - 1].wk.localeCompare(a.points[a.points.length - 1].wk));
+
+  const card = document.createElement("div");
+  card.className = "card";
+  card.innerHTML = '<div class="card-head"><span class="card-title">Strength progress</span><span class="card-sub">' + items.length + ' tracked</span></div>';
+
+  const sparkW = 80, sparkH = 22;
+  items.forEach(s => {
+    const last = s.points[s.points.length - 1];
+    const first = s.points[0];
+    const delta = Math.round((last.weight - first.weight) * 10) / 10;
+    const deltaStr = delta > 0 ? "+" + delta : "" + delta;
+    const deltaCls = delta > 0 ? " up" : delta < 0 ? " down" : "";
+
+    const ys = s.points.map(p => p.weight);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const span = maxY - minY || 1;
+    const sx = i => s.points.length === 1 ? sparkW / 2 : (i / (s.points.length - 1)) * sparkW;
+    const sy = y => sparkH - 2 - ((y - minY) / span) * (sparkH - 4);
+    let path = "";
+    s.points.forEach((p, i) => {
+      path += (i === 0 ? "M " : " L ") + sx(i).toFixed(1) + " " + sy(p.weight).toFixed(1);
+    });
+
+    card.appendChild(el(
+      '<div class="strength-row">'
+      + '<span class="strength-name">' + esc(s.name) + '</span>'
+      + '<svg class="strength-spark" viewBox="0 0 ' + sparkW + ' ' + sparkH + '" preserveAspectRatio="none">'
+        + '<path d="' + path + '" fill="none" stroke="#1c1917" stroke-width="1.5"/>'
+      + '</svg>'
+      + '<span class="strength-now"><b>' + last.weight + '</b> kg'
+        + (delta !== 0 ? ' <span class="strength-delta' + deltaCls + '">' + deltaStr + '</span>' : '')
+      + '</span>'
+      + '</div>'
+    ));
+  });
+
+  return card;
+}
+
+function renderBackupCard(rerender) {
+  const card = document.createElement("div");
+  card.className = "card";
+  card.innerHTML = '<div class="card-head"><span class="card-title">Data</span></div>'
+    + '<div style="padding:0 16px 14px;font-size:12.5px;color:#78716c;">'
+      + 'Everything is stored only on this device. Back up before clearing browser data or switching phones.'
+    + '</div>'
+    + '<div style="display:flex;gap:8px;padding:0 16px 16px;">'
+      + '<button class="btn btn-sm" id="data-export">Export backup</button>'
+      + '<button class="btn btn-sm btn-ghost" id="data-import">Import backup</button>'
+      + '<input type="file" id="data-import-file" accept="application/json,.json" style="display:none;">'
+    + '</div>';
+
+  card.querySelector("#data-export").onclick = () => {
+    downloadJSON(buildBackup(), "lift-and-eat-backup-" + dateKey() + ".json");
+  };
+
+  const fileInput = card.querySelector("#data-import-file");
+  card.querySelector("#data-import").onclick = () => fileInput.click();
+  fileInput.onchange = () => {
+    const file = fileInput.files && fileInput.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      let parsed;
+      try { parsed = JSON.parse(reader.result); }
+      catch (e) { alert("That file isn't valid JSON."); return; }
+      if (!looksLikeBackup(parsed)) {
+        alert("That file doesn't look like a Lift & Eat backup. (Missing workoutLog/intake/weights/customFoods.)");
+        return;
+      }
+      const dateLabel = parsed.exportedAt ? new Date(parsed.exportedAt).toLocaleString() : "unknown date";
+      const ok = confirm("Replace all local data with the backup from " + dateLabel + "?\n\nThis cannot be undone (export your current data first if you want to keep it).");
+      if (!ok) { fileInput.value = ""; return; }
+      applyBackup(parsed);
+      fileInput.value = "";
+      rerender();
+    };
+    reader.readAsText(file);
+  };
+  return card;
 }
 
 function renderFeedback() {

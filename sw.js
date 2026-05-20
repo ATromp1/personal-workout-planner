@@ -11,7 +11,7 @@
  * Bump CACHE_VERSION whenever the shell list changes so old caches are
  * dropped on activate.
  */
-const CACHE_VERSION = "le-v1";
+const CACHE_VERSION = "le-v2";
 const SHELL = [
   "./",
   "./index.html",
@@ -28,8 +28,15 @@ const SHELL = [
   "./pages/meals.js",
   "./pages/intake.js",
   "./pages/stats.js",
+  "./pages/intake/templateModal.js",
+  "./pages/intake/quickEntryModal.js",
+  "./pages/intake/customFoodModal.js",
+  "./pages/intake/searchModal.js",
+  "./pages/intake/scanModal.js",
+  "./pages/intake/portionEditModal.js",
   "./components/modal.js",
-  "./components/scanner.js"
+  "./components/scanner.js",
+  "./components/toast.js"
 ];
 
 self.addEventListener("install", e => {

@@ -1,6 +1,7 @@
 import { STATE, esc, dateKey, addIntake, persist } from "../../core/state.js";
 import { openModal, closeModal } from "../../components/modal.js";
 import { openPortionEditModal } from "./portionEditModal.js";
+import { showUndoToast } from "../../components/toast.js";
 
 export function openCustomFoodModal(rerender) {
   let list = STATE.customFoods.length === 0
@@ -50,6 +51,13 @@ export function openCustomFoodModal(rerender) {
     const k = Number(document.getElementById("cf-k").value);
     const p = Number(document.getElementById("cf-p").value);
     if (!name || isNaN(k) || isNaN(p)) { alert("Fill in name, kcal, and protein."); return; }
+    // Range checks. Per-100g is tighter because pure fat caps at ~900 kcal
+    // and whey isolate caps protein near 90 g; per-portion uses the same
+    // bounds as addIntake so we never save a food we can't actually log.
+    const maxK = per100 ? 1000 : 5000;
+    const maxP = per100 ? 100 : 500;
+    if (k < 0 || k > maxK) { alert("Calories out of range (0–" + maxK + ")."); return; }
+    if (p < 0 || p > maxP) { alert("Protein out of range (0–" + maxP + " g)."); return; }
     const food = { id: "cf-" + Date.now(), name, kcal: k, protein: p };
     if (per100) { food.kcalPer100 = k; food.proteinPer100 = p; }
     STATE.customFoods.push(food);
@@ -60,9 +68,16 @@ export function openCustomFoodModal(rerender) {
   document.querySelectorAll(".food-pick").forEach(p => {
     p.onclick = (e) => {
       if (e.target.dataset.del !== undefined) {
-        STATE.customFoods.splice(Number(e.target.dataset.del), 1);
+        const di = Number(e.target.dataset.del);
+        const removed = STATE.customFoods[di];
+        STATE.customFoods.splice(di, 1);
         persist("customFoods");
         openCustomFoodModal(rerender);
+        showUndoToast("Removed " + removed.name, () => {
+          STATE.customFoods.splice(di, 0, removed);
+          persist("customFoods");
+          openCustomFoodModal(rerender);
+        });
         return;
       }
       const f = STATE.customFoods[Number(p.dataset.i)];
