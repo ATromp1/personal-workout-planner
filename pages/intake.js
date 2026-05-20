@@ -19,6 +19,18 @@ export function renderIntake(root, rerender) {
   const kOver = tot.kcal > TARGET_KCAL * 1.1;
   const pOver = tot.protein > TARGET_PROTEIN * 1.2;
 
+  // Remaining-vs-target string. Round protein to 1 decimal; kcal whole.
+  const kRemain = TARGET_KCAL - tot.kcal;
+  const pRemain = Math.round((TARGET_PROTEIN - tot.protein) * 10) / 10;
+  const kRemainStr = kRemain > 0 ? kRemain + " kcal to go"
+                  : kRemain < 0 ? Math.abs(kRemain) + " kcal over"
+                  : "Target hit";
+  const pRemainStr = pRemain > 0 ? pRemain + " g to go"
+                  : pRemain < 0 ? Math.abs(pRemain) + " g over"
+                  : "Target hit";
+  const kRemainCls = kRemain < 0 ? " over" : "";
+  const pRemainCls = pRemain < 0 ? " over" : "";
+
   const summary = document.createElement("div");
   summary.className = "card";
   summary.innerHTML =
@@ -26,10 +38,12 @@ export function renderIntake(root, rerender) {
     + '<div class="progress-wrap">'
       + '<div class="progress-label"><span>Calories</span><span><b>' + tot.kcal + '</b> / ' + TARGET_KCAL + ' kcal</span></div>'
       + '<div class="progress-bar"><div class="progress-fill ' + (kOver ? "over" : "") + '" style="width:' + kPct + '%"></div></div>'
+      + '<div class="remaining' + kRemainCls + '">' + kRemainStr + '</div>'
     + '</div>'
     + '<div class="progress-wrap" style="padding-top:0">'
       + '<div class="progress-label"><span>Protein</span><span><b>' + tot.protein + '</b> / ' + TARGET_PROTEIN + ' g</span></div>'
       + '<div class="progress-bar"><div class="progress-fill ' + (pOver ? "over" : "") + '" style="width:' + pPct + '%"></div></div>'
+      + '<div class="remaining' + pRemainCls + '">' + pRemainStr + '</div>'
     + '</div>';
   root.appendChild(summary);
 
