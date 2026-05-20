@@ -2,10 +2,12 @@ import { MEAL_DAYS, MEAL_DAY_ORDER, LOW_APP_FOODS } from "../data/meals.js";
 import { TARGET_KCAL, TARGET_PROTEIN } from "../data/config.js";
 import {
   STATE, esc, el, dateKey,
-  todaysIntake, dayTotals, addIntake,
+  todaysIntake, dayTotals, addIntake, rememberFood,
   persist
 } from "../core/state.js";
 import { openModal, closeModal } from "../components/modal.js";
+import { lookupBarcode, searchProducts } from "../core/foodApi.js";
+import { startScanner } from "../components/scanner.js";
 
 export function renderIntake(root, rerender) {
   const items = todaysIntake();
@@ -36,12 +38,16 @@ export function renderIntake(root, rerender) {
     '<div class="card-head"><span class="card-title">Add a meal</span></div>'
     + '<div class="add-row" style="flex-wrap:wrap; gap:6px;">'
       + '<button class="btn btn-sm" id="add-template">From plan</button>'
+      + '<button class="btn btn-sm btn-ghost" id="add-search">🔍 Search</button>'
+      + '<button class="btn btn-sm btn-ghost" id="add-scan">📷 Scan</button>'
       + '<button class="btn btn-sm btn-ghost" id="add-custom">My foods</button>'
-      + '<button class="btn btn-sm btn-ghost" id="add-quick">Quick entry</button>'
+      + '<button class="btn btn-sm btn-ghost" id="add-quick">Quick</button>'
     + '</div>';
   root.appendChild(addCard);
 
   document.getElementById("add-template").onclick = () => openTemplateModal(rerender);
+  document.getElementById("add-search").onclick = () => openSearchModal(rerender);
+  document.getElementById("add-scan").onclick = () => openScanModal(rerender);
   document.getElementById("add-custom").onclick = () => openCustomFoodModal(rerender);
   document.getElementById("add-quick").onclick = () => openQuickEntryModal(rerender);
 
@@ -52,17 +58,21 @@ export function renderIntake(root, rerender) {
     log.appendChild(el('<div class="empty">Nothing logged yet today.</div>'));
   } else {
     items.forEach((it, i) => {
+      const portionStr = it.grams ? ' · ' + it.grams + ' g' : '';
       log.appendChild(el(
         '<div class="log-item">'
-        + '<div>' + esc(it.name) + '<div class="macros">' + it.kcal + ' kcal · ' + it.protein + ' g protein</div></div>'
+        + '<div>' + esc(it.name) + '<div class="macros">' + it.kcal + ' kcal · ' + it.protein + ' g protein' + portionStr + '</div></div>'
+        + '<div class="right">'
+        + (it.kcalPer100 != null ? '<button class="x-btn" data-edit="' + i + '" title="Edit portion">✎</button>' : '')
         + '<button class="x-btn" data-i="' + i + '">×</button>'
+        + '</div>'
         + '</div>'
       ));
     });
   }
   root.appendChild(log);
 
-  log.querySelectorAll(".x-btn").forEach(btn => {
+  log.querySelectorAll("[data-i]").forEach(btn => {
     btn.onclick = () => {
       const i = Number(btn.dataset.i);
       const k = dateKey();
@@ -72,7 +82,15 @@ export function renderIntake(root, rerender) {
       rerender();
     };
   });
+  log.querySelectorAll("[data-edit]").forEach(btn => {
+    btn.onclick = () => {
+      const i = Number(btn.dataset.edit);
+      openPortionEditModal(i, rerender);
+    };
+  });
 }
+
+/* ===== Existing modals ===== */
 
 function openTemplateModal(rerender) {
   let rows = "";
@@ -103,7 +121,7 @@ function openTemplateModal(rerender) {
 
 function openCustomFoodModal(rerender) {
   let list = STATE.customFoods.length === 0
-    ? '<div class="empty">No custom foods yet. Add one below.</div>'
+    ? '<div class="empty">No custom foods yet. Add one below, or use Search / Scan.</div>'
     : STATE.customFoods.map((f,i) =>
         '<div class="food-pick" data-i="' + i + '">'
         + '<span>' + esc(f.name) + '</span>'
@@ -137,7 +155,17 @@ function openCustomFoodModal(rerender) {
         return;
       }
       const f = STATE.customFoods[Number(p.dataset.i)];
-      addIntake(f.name, f.kcal, f.protein);
+      // If it has per-100g data, add as 100g portion so it's editable
+      if (f.kcalPer100 != null) {
+        addIntake(f.name, f.kcalPer100, f.proteinPer100, {
+          grams: 100,
+          kcalPer100: f.kcalPer100,
+          proteinPer100: f.proteinPer100,
+          barcode: f.barcode
+        });
+      } else {
+        addIntake(f.name, f.kcal, f.protein);
+      }
       closeModal(); rerender();
     };
   });
@@ -159,5 +187,178 @@ function openQuickEntryModal(rerender) {
     const p = Number(document.getElementById("q-p").value) || 0;
     addIntake(name, k, p);
     closeModal(); rerender();
+  };
+}
+
+/* ===== NEW: Search Open Food Facts ===== */
+
+function openSearchModal(rerender) {
+  openModal('<h3>Search foods</h3>'
+    + '<input class="inp" id="search-q" placeholder="e.g. magere kwark, havermout..." autocomplete="off">'
+    + '<div id="search-results" style="margin-top:10px;min-height:50px;"></div>'
+    + '<div class="modal-actions"><button class="btn btn-ghost" id="m-cancel">Cancel</button></div>');
+  document.getElementById("m-cancel").onclick = closeModal;
+  const q = document.getElementById("search-q");
+  const results = document.getElementById("search-results");
+  q.focus();
+
+  let timer = null;
+  let lastQuery = "";
+  q.addEventListener("input", () => {
+    clearTimeout(timer);
+    const val = q.value.trim();
+    if (val.length < 2) { results.innerHTML = ""; return; }
+    timer = setTimeout(async () => {
+      lastQuery = val;
+      results.innerHTML = '<div class="empty">Searching…</div>';
+      try {
+        const list = await searchProducts(val, 15);
+        if (lastQuery !== val) return; // a newer query started
+        if (list.length === 0) {
+          results.innerHTML = '<div class="empty">No products found. Try a simpler name.</div>';
+          return;
+        }
+        results.innerHTML = list.map(p => {
+          const label = (p.brand ? p.brand + " — " : "") + p.name;
+          return '<div class="food-pick" data-id="' + p.id + '">'
+            + '<span>' + esc(label) + '</span>'
+            + '<span class="macros">' + p.kcalPer100 + ' kcal · ' + p.proteinPer100 + ' g / 100g</span>'
+            + '</div>';
+        }).join("");
+        results.querySelectorAll(".food-pick").forEach(div => {
+          div.onclick = () => {
+            const prod = list.find(x => x.id === div.dataset.id);
+            if (prod) handleProductPicked(prod, rerender);
+          };
+        });
+      } catch (e) {
+        if (lastQuery !== val) return;
+        results.innerHTML = '<div class="empty">Search failed. Check your connection.</div>';
+      }
+    }, 350);
+  });
+}
+
+/* ===== NEW: Scan barcode ===== */
+
+function openScanModal(rerender) {
+  openModal('<h3>Scan barcode</h3>'
+    + '<div style="position:relative;background:#000;border-radius:10px;overflow:hidden;aspect-ratio:4/3;">'
+      + '<video id="scan-video" style="width:100%;height:100%;object-fit:cover;display:block;"></video>'
+      + '<div id="scan-overlay" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;">'
+        + '<div style="width:70%;height:35%;border:2px solid rgba(255,255,255,0.6);border-radius:8px;"></div>'
+      + '</div>'
+    + '</div>'
+    + '<div id="scan-status" style="margin-top:10px;font-size:12.5px;color:#78716c;text-align:center;">Starting camera…</div>'
+    + '<div class="modal-actions"><button class="btn btn-ghost" id="m-cancel">Cancel</button></div>');
+
+  const video = document.getElementById("scan-video");
+  const status = document.getElementById("scan-status");
+  let stopFn = () => {};
+
+  document.getElementById("m-cancel").onclick = () => {
+    stopFn();
+    closeModal();
+  };
+
+  (async () => {
+    try {
+      stopFn = await startScanner(video, async (code, err) => {
+        if (err) {
+          status.textContent = "Camera failed: " + (err.message || err);
+          return;
+        }
+        if (!code) return;
+        status.textContent = "Found " + code + " — looking up…";
+        try {
+          const prod = await lookupBarcode(code);
+          stopFn();
+          if (!prod) {
+            // Show "not found, enter manually" fallback
+            openModal('<h3>Not found</h3>'
+              + '<p style="font-size:13px;color:#57534e;margin-bottom:8px;">Barcode <code>' + esc(code) + '</code> wasn\'t in the Open Food Facts database, or it has no macro data.</p>'
+              + '<p style="font-size:13px;color:#57534e;">You can add it manually using Quick entry or My foods.</p>'
+              + '<div class="modal-actions"><button class="btn" id="m-ok">OK</button></div>');
+            document.getElementById("m-ok").onclick = closeModal;
+            return;
+          }
+          handleProductPicked(prod, rerender);
+        } catch (e) {
+          status.textContent = "Lookup failed: " + e.message;
+        }
+      });
+      if (status.textContent === "Starting camera…") status.textContent = "Point the camera at a barcode.";
+    } catch (e) {
+      status.textContent = "Can't access camera. Camera works only on HTTPS.";
+    }
+  })();
+}
+
+/* Common: a product was picked (from search OR scan).
+   Default to 100g, save to My foods, add to today, then offer portion edit. */
+function handleProductPicked(prod, rerender) {
+  const label = (prod.brand ? prod.brand + " — " : "") + prod.name;
+  // Auto-save to My foods (if not already there)
+  rememberFood({
+    name: label,
+    kcal: prod.kcalPer100,
+    protein: prod.proteinPer100,
+    kcalPer100: prod.kcalPer100,
+    proteinPer100: prod.proteinPer100,
+    barcode: prod.barcode
+  });
+  // Add as 100g portion
+  addIntake(label, prod.kcalPer100, prod.proteinPer100, {
+    grams: 100,
+    kcalPer100: prod.kcalPer100,
+    proteinPer100: prod.proteinPer100,
+    barcode: prod.barcode
+  });
+  // Open the portion edit dialog right away
+  closeModal();
+  rerender();
+  // Open portion edit on the just-added item
+  const k = dateKey();
+  const lastIdx = STATE.intake[k].length - 1;
+  openPortionEditModal(lastIdx, rerender);
+}
+
+/* ===== Portion editing ===== */
+
+function openPortionEditModal(idx, rerender) {
+  const k = dateKey();
+  const item = STATE.intake[k][idx];
+  if (!item || item.kcalPer100 == null) return;
+
+  openModal('<h3>' + esc(item.name) + '</h3>'
+    + '<p style="font-size:12.5px;color:#78716c;margin-bottom:6px;">' + item.kcalPer100 + ' kcal · ' + item.proteinPer100 + ' g protein per 100g</p>'
+    + '<label>Portion (grams)</label>'
+    + '<input class="inp" id="p-grams" inputmode="numeric" value="' + (item.grams || 100) + '">'
+    + '<div id="p-preview" style="margin-top:10px;font-size:13px;color:#57534e;"></div>'
+    + '<div class="modal-actions">'
+      + '<button class="btn btn-ghost" id="m-cancel">Cancel</button>'
+      + '<button class="btn" id="m-save">Update</button></div>');
+
+  const grams = document.getElementById("p-grams");
+  const preview = document.getElementById("p-preview");
+  const updatePreview = () => {
+    const g = Number(grams.value) || 0;
+    const k = Math.round(item.kcalPer100 * g / 100);
+    const p = Math.round(item.proteinPer100 * g / 100 * 10) / 10;
+    preview.innerHTML = '<b>' + k + '</b> kcal · <b>' + p + '</b> g protein';
+  };
+  updatePreview();
+  grams.addEventListener("input", updatePreview);
+
+  document.getElementById("m-cancel").onclick = closeModal;
+  document.getElementById("m-save").onclick = () => {
+    const g = Number(grams.value);
+    if (!g || g <= 0) { alert("Enter a portion in grams."); return; }
+    item.grams = g;
+    item.kcal = Math.round(item.kcalPer100 * g / 100);
+    item.protein = Math.round(item.proteinPer100 * g / 100 * 10) / 10;
+    persist("intake");
+    closeModal();
+    rerender();
   };
 }

@@ -90,11 +90,44 @@ export function dayTotals(items) {
   items.forEach(it => { k += Number(it.kcal) || 0; p += Number(it.protein) || 0; });
   return { kcal: k, protein: p };
 }
-export function addIntake(name, kcal, protein) {
+/**
+ * Add an entry to today's intake.
+ * Either pass absolute macros (kcal, protein), or pass per-100g macros
+ * with a portion size in grams and we scale.
+ */
+export function addIntake(name, kcal, protein, extra) {
   const k = dateKey();
   if (!STATE.intake[k]) STATE.intake[k] = [];
-  STATE.intake[k].push({ name, kcal: Number(kcal), protein: Number(protein) });
+  const item = { name, kcal: Number(kcal), protein: Number(protein) };
+  if (extra) {
+    // Optional fields for editable scanned/searched items
+    if (extra.grams != null) item.grams = Number(extra.grams);
+    if (extra.kcalPer100 != null) item.kcalPer100 = Number(extra.kcalPer100);
+    if (extra.proteinPer100 != null) item.proteinPer100 = Number(extra.proteinPer100);
+    if (extra.barcode) item.barcode = extra.barcode;
+  }
+  STATE.intake[k].push(item);
   persist("intake");
+}
+
+/* Save a food (from search/scan) into the user's custom foods list,
+   unless it's already there. Matches by barcode if available, else by name. */
+export function rememberFood(food) {
+  const exists = STATE.customFoods.some(f =>
+    (food.barcode && f.barcode === food.barcode) ||
+    f.name.toLowerCase() === food.name.toLowerCase()
+  );
+  if (exists) return;
+  STATE.customFoods.push({
+    id: "cf-" + Date.now(),
+    name: food.name,
+    kcal: food.kcal,
+    protein: food.protein,
+    kcalPer100: food.kcalPer100,
+    proteinPer100: food.proteinPer100,
+    barcode: food.barcode || null
+  });
+  persist("customFoods");
 }
 
 /* DOM helpers */
