@@ -9,28 +9,44 @@ const BASE = "https://world.openfoodfacts.org";
 /* Normalize an Open Food Facts product object into our shape:
    { id, name, brand, kcalPer100, proteinPer100, defaultGrams, barcode }
 
-   Energy handling: OFF has multiple energy fields with inconsistent units
-   across products. The only fields with reliably-known units are
-   `energy-kcal_100g` (kcal) and `energy-kj_100g` (kJ).
-   The generic `energy_100g` is ambiguous and should NOT be trusted.
+   Energy handling: OFF data is community-contributed and sometimes wrong.
+   Strategy:
+     1. If both kcal and kJ are present, cross-check. If kJ/4.184 differs
+        from the stored kcal by >15%, trust the kJ (less often miskeyed —
+        on EU packaging, kJ is the primary value).
+     2. If only kcal is present, use it (with sanity bounds).
+     3. If only kJ is present, convert.
+     4. The legacy `energy_100g` field has ambiguous units across products,
+        so we ignore it entirely.
 
-   Sanity check: pure fat is 900 kcal/100g, the absolute ceiling for food.
-   A value above 900 is almost certainly kJ leaking through. */
+   Sanity: pure fat is 900 kcal/100g, the absolute ceiling for any food. */
 function normalize(p) {
   if (!p) return null;
   const nutr = p.nutriments || {};
 
+  const kcalField = nutr["energy-kcal_100g"];
+  const kjField   = nutr["energy-kj_100g"];
+  const kcalNum = kcalField != null ? Number(kcalField) : null;
+  const kjNum   = kjField   != null ? Number(kjField)   : null;
+
   let kcal = null;
-  if (nutr["energy-kcal_100g"] != null) {
-    kcal = Number(nutr["energy-kcal_100g"]);
-  } else if (nutr["energy-kj_100g"] != null) {
-    kcal = Number(nutr["energy-kj_100g"]) / 4.184;
+  if (kcalNum != null && !isNaN(kcalNum) && kjNum != null && !isNaN(kjNum)) {
+    // Both present — cross-check
+    const kcalFromKj = kjNum / 4.184;
+    const diff = Math.abs(kcalNum - kcalFromKj) / Math.max(kcalFromKj, 1);
+    if (diff > 0.15) {
+      // Mismatch — trust the kJ value (kcal field is often miskeyed)
+      kcal = kcalFromKj;
+    } else {
+      kcal = kcalNum;
+    }
+  } else if (kcalNum != null && !isNaN(kcalNum)) {
+    kcal = kcalNum;
+  } else if (kjNum != null && !isNaN(kjNum)) {
+    kcal = kjNum / 4.184;
   }
-  // Reject if no reliable energy data
   if (kcal == null || isNaN(kcal)) return null;
-  // Sanity: if it's clearly a kJ value masquerading as kcal (>900), convert
-  if (kcal > 900) kcal = kcal / 4.184;
-  // After correction, reject anything still implausible
+  // Sanity: implausible final value, skip the product
   if (kcal < 0 || kcal > 950) return null;
 
   const protein = nutr["proteins_100g"];
