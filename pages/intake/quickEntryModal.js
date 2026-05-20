@@ -13,9 +13,14 @@ export function openQuickEntryModal(rerender) {
   document.getElementById("m-cancel").onclick = closeModal;
   document.getElementById("m-save").onclick = () => {
     const name = document.getElementById("q-name").value.trim() || "Meal";
-    const k = Number(document.getElementById("q-k").value) || 0;
-    const p = Number(document.getElementById("q-p").value) || 0;
-    addIntake(name, k, p);
+    const kRaw = document.getElementById("q-k").value.trim();
+    const pRaw = document.getElementById("q-p").value.trim();
+    const k = Number(kRaw), p = Number(pRaw);
+    if (kRaw === "" || pRaw === "" || isNaN(k) || isNaN(p)) {
+      alert("Enter both calories and protein as numbers.");
+      return;
+    }
+    if (!addIntake(name, k, p)) return; // caps rejected — alert already shown
     closeModal(); rerender();
   };
 }

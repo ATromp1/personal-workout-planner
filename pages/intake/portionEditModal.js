@@ -33,10 +33,19 @@ export function openPortionEditModal(idx, rerender) {
   document.getElementById("m-cancel").onclick = closeModal;
   document.getElementById("m-save").onclick = () => {
     const g = Number(grams.value);
-    if (!g || g <= 0) { alert("Enter a portion in grams."); return; }
+    if (!g || g <= 0 || g > 2000) {
+      alert("Enter a portion between 1 and 2000 grams.");
+      return;
+    }
+    const newKcal = Math.round(item.kcalPer100 * g / 100);
+    const newProtein = Math.round(item.proteinPer100 * g / 100 * 10) / 10;
+    // Mirrors addIntake's per-item caps — typing 5000g of a calorie-dense
+    // food shouldn't silently store an absurd intake row.
+    if (newKcal > 5000) { alert("That portion would be " + newKcal + " kcal — over the 5000 cap."); return; }
+    if (newProtein > 500) { alert("That portion would be " + newProtein + " g protein — over the 500 cap."); return; }
     item.grams = g;
-    item.kcal = Math.round(item.kcalPer100 * g / 100);
-    item.protein = Math.round(item.proteinPer100 * g / 100 * 10) / 10;
+    item.kcal = newKcal;
+    item.protein = newProtein;
     persist("intake");
     closeModal();
     rerender();

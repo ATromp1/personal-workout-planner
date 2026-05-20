@@ -130,15 +130,31 @@ export function dayTotals(items) {
   items.forEach(it => { k += Number(it.kcal) || 0; p += Number(it.protein) || 0; });
   return { kcal: k, protein: p };
 }
+/* Sanity caps for a single intake entry. Picked to be permissive enough
+   for big meals (e.g. a cheat-day pizza) but tight enough to catch typos
+   like 9999 instead of 999. Returns true on success, false (with alert)
+   on rejection. */
+const MAX_ITEM_KCAL = 5000;
+const MAX_ITEM_PROTEIN = 500;
+
 /**
  * Add an entry to today's intake.
  * Either pass absolute macros (kcal, protein), or pass per-100g macros
  * with a portion size in grams and we scale.
  */
 export function addIntake(name, kcal, protein, extra) {
+  const kNum = Number(kcal), pNum = Number(protein);
+  if (!isFinite(kNum) || kNum < 0 || kNum > MAX_ITEM_KCAL) {
+    alert("Calories out of range (0–" + MAX_ITEM_KCAL + "). Got " + kcal + ".");
+    return false;
+  }
+  if (!isFinite(pNum) || pNum < 0 || pNum > MAX_ITEM_PROTEIN) {
+    alert("Protein out of range (0–" + MAX_ITEM_PROTEIN + " g). Got " + protein + ".");
+    return false;
+  }
   const k = dateKey();
   if (!STATE.intake[k]) STATE.intake[k] = [];
-  const item = { name, kcal: Number(kcal), protein: Number(protein) };
+  const item = { name, kcal: kNum, protein: pNum };
   if (extra) {
     // Optional fields for editable scanned/searched items
     if (extra.grams != null) item.grams = Number(extra.grams);
@@ -148,6 +164,7 @@ export function addIntake(name, kcal, protein, extra) {
   }
   STATE.intake[k].push(item);
   persist("intake");
+  return true;
 }
 
 /* Save a food (from search/scan) into the user's custom foods list,
