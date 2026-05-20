@@ -44,3 +44,12 @@ document.getElementById("timer-skip").addEventListener("click", stopTimer);
 initModal();
 load();
 navigate("workout");
+
+// Register the service worker for offline support. Fails silently on
+// http://localhost (SW requires HTTPS) — production hosting (GitHub Pages,
+// or any HTTPS subdomain) will pick it up.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  });
+}
