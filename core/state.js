@@ -16,11 +16,21 @@ export function todayKey() {
   const map = { 1:"mon", 2:"tue", 3:"wed", 4:"thu", 5:"fri", 6:"sat", 0:"sat" };
   return map[new Date().getDay()];
 }
+
+/* ISO 8601 week id: "YYYY-wWW" where week 1 contains the year's first Thursday.
+   Avoids the off-by-one issues near January 1 that the naive day-of-year math produced. */
 export function weekId(d) {
-  d = d || new Date();
-  const onejan = new Date(d.getFullYear(), 0, 1);
-  const week = Math.ceil(((d - onejan) / 86400000 + onejan.getDay() + 1) / 7);
-  return d.getFullYear() + "-w" + week;
+  const target = d ? new Date(d.valueOf()) : new Date();
+  target.setHours(0, 0, 0, 0);
+  // Shift to Thursday of the current ISO week (Mon=0…Sun=6, +3 = Thu).
+  const dayNr = (target.getDay() + 6) % 7;
+  target.setDate(target.getDate() - dayNr + 3);
+  const isoYear = target.getFullYear();
+  const jan4 = new Date(isoYear, 0, 4);
+  const jan4DayNr = (jan4.getDay() + 6) % 7;
+  jan4.setDate(jan4.getDate() - jan4DayNr + 3);
+  const week = 1 + Math.round((target - jan4) / (7 * 86400000));
+  return isoYear + "-w" + String(week).padStart(2, "0");
 }
 export function prevWeekId() {
   const d = new Date();
@@ -61,6 +71,14 @@ export function persist(key) {
     flashSaved();
   } catch(e) { console.error("save failed", e); }
 }
+
+/* Debounced variant — batches rapid writes (e.g. typing in weight/reps inputs)
+   into one localStorage write. Keeps the "Saved" flash from flickering. */
+const _debounceTimers = {};
+export function persistDebounced(key, ms = 250) {
+  clearTimeout(_debounceTimers[key]);
+  _debounceTimers[key] = setTimeout(() => persist(key), ms);
+}
 function flashSaved() {
   const s = document.getElementById("saved");
   if (!s) return;
@@ -69,18 +87,40 @@ function flashSaved() {
   window._st = setTimeout(() => s.classList.remove("show"), 1100);
 }
 
-/* Workout log helpers */
-export function getEntry(wk, dayKey, exId) {
+/* Workout log helpers.
+   readEntry: side-effect-free; returns the stored entry (resized to match
+     current sets count) or a synthesized empty entry that is NOT stored.
+     Mutating the returned object when the entry doesn't exist yet won't
+     persist — use ensureEntry for write paths.
+   ensureEntry: creates and stores the entry if missing, then returns it.
+     Also resizes done[] if the program's sets count has changed. */
+function resizeDone(entry, sets) {
+  if (!entry || !Array.isArray(entry.done) || entry.done.length === sets) return entry;
+  if (entry.done.length < sets) {
+    entry.done = entry.done.concat(new Array(sets - entry.done.length).fill(false));
+  } else {
+    entry.done = entry.done.slice(0, sets);
+  }
+  return entry;
+}
+function defaultSets(dayKey, exId) {
+  const exDef = findExercise(dayKey, exId);
+  return exDef ? exDef.sets : 3;
+}
+export function readEntry(wk, dayKey, exId, sets) {
+  const stored = STATE.workoutLog[wk] && STATE.workoutLog[wk][dayKey] && STATE.workoutLog[wk][dayKey][exId];
+  const n = sets != null ? sets : defaultSets(dayKey, exId);
+  if (stored) return resizeDone(stored, n);
+  return { weight: "", reps: "", done: new Array(n).fill(false) };
+}
+export function ensureEntry(wk, dayKey, exId, sets) {
   if (!STATE.workoutLog[wk]) STATE.workoutLog[wk] = {};
   if (!STATE.workoutLog[wk][dayKey]) STATE.workoutLog[wk][dayKey] = {};
+  const n = sets != null ? sets : defaultSets(dayKey, exId);
   if (!STATE.workoutLog[wk][dayKey][exId]) {
-    const exDef = findExercise(dayKey, exId);
-    STATE.workoutLog[wk][dayKey][exId] = { weight: "", reps: "", done: new Array(exDef ? exDef.sets : 3).fill(false) };
+    STATE.workoutLog[wk][dayKey][exId] = { weight: "", reps: "", done: new Array(n).fill(false) };
   }
-  return STATE.workoutLog[wk][dayKey][exId];
-}
-export function getEntryReadOnly(wk, dayKey, exId) {
-  return STATE.workoutLog[wk] && STATE.workoutLog[wk][dayKey] && STATE.workoutLog[wk][dayKey][exId];
+  return resizeDone(STATE.workoutLog[wk][dayKey][exId], n);
 }
 
 /* Intake helpers */

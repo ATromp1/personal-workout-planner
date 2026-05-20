@@ -2,8 +2,8 @@ import { PROGRAM, DAY_ORDER } from "../data/program.js";
 import {
   STATE, WK, PREV_WK,
   esc, el,
-  getEntry, getEntryReadOnly,
-  persist,
+  readEntry, ensureEntry,
+  persist, persistDebounced,
   startTimer, stopTimer
 } from "../core/state.js";
 
@@ -46,8 +46,8 @@ export function renderWorkout(root, rerender) {
   const dots = document.createElement("div");
   dots.className = "progress-dots";
   day.exercises.forEach((ex, i) => {
-    const e = getEntryReadOnly(WK, STATE.workout.activeDay, ex.id);
-    const allDone = e && e.done && e.done.length === ex.sets && e.done.every(Boolean);
+    const e = readEntry(WK, STATE.workout.activeDay, ex.id, ex.sets);
+    const allDone = e.done.length === ex.sets && e.done.every(Boolean);
     const dot = document.createElement("div");
     dot.className = "dot" + (allDone ? " done" : "") + (i === STATE.workout.activeExIdx && !allDone ? " current" : "");
     dot.onclick = () => { STATE.workout.activeExIdx = i; stopTimer(); rerender(); };
@@ -73,9 +73,10 @@ export function renderWorkout(root, rerender) {
     if (idx < day.exercises.length - 1) { STATE.workout.activeExIdx++; stopTimer(); rerender(); }
   };
 
-  // Exercise card
-  const entry = getEntry(WK, STATE.workout.activeDay, ex.id);
-  const prevEntry = getEntryReadOnly(PREV_WK, STATE.workout.activeDay, ex.id);
+  // Exercise card. Read-only here: don't bloat workoutLog just because the
+  // user is viewing an exercise. Writes go through ensureEntry below.
+  const entry = readEntry(WK, STATE.workout.activeDay, ex.id, ex.sets);
+  const prevEntry = readEntry(PREV_WK, STATE.workout.activeDay, ex.id, ex.sets);
   const isOpen = !!STATE.openHints[ex.id];
 
   const wtPlaceholder = prevEntry && prevEntry.weight ? prevEntry.weight : "—";
@@ -122,14 +123,17 @@ export function renderWorkout(root, rerender) {
   card.innerHTML = html;
   root.appendChild(card);
 
-  // Wire it all up
+  // Wire it all up. Each handler ensures the entry exists before mutating
+  // (so view-only navigation doesn't create empty entries) and uses the
+  // debounced persist for keystroke inputs to avoid jank on slow phones.
+  const dayKey = STATE.workout.activeDay;
   document.getElementById("wt").addEventListener("input", e => {
-    entry.weight = e.target.value;
-    persist("workoutLog");
+    ensureEntry(WK, dayKey, ex.id, ex.sets).weight = e.target.value;
+    persistDebounced("workoutLog");
   });
   document.getElementById("rp").addEventListener("input", e => {
-    entry.reps = e.target.value;
-    persist("workoutLog");
+    ensureEntry(WK, dayKey, ex.id, ex.sets).reps = e.target.value;
+    persistDebounced("workoutLog");
   });
   document.getElementById("info-toggle").onclick = () => {
     STATE.openHints[ex.id] = !STATE.openHints[ex.id];
@@ -139,11 +143,12 @@ export function renderWorkout(root, rerender) {
 
   card.querySelectorAll(".set-btn").forEach(b => {
     b.onclick = () => {
+      const live = ensureEntry(WK, dayKey, ex.id, ex.sets);
       const i = Number(b.dataset.set);
-      const was = entry.done[i];
-      entry.done[i] = !was;
+      const was = live.done[i];
+      live.done[i] = !was;
       persist("workoutLog");
-      const nowAllDone = entry.done.every(Boolean);
+      const nowAllDone = live.done.every(Boolean);
       if (!was) {
         if (nowAllDone && idx < day.exercises.length - 1) {
           stopTimer();
