@@ -78,6 +78,9 @@ export function renderWorkout(root, rerender) {
   const prevEntry = getEntryReadOnly(PREV_WK, STATE.workout.activeDay, ex.id);
   const isOpen = !!STATE.openHints[ex.id];
 
+  const wtPlaceholder = prevEntry && prevEntry.weight ? prevEntry.weight : "—";
+  const rpPlaceholder = prevEntry && prevEntry.reps ? prevEntry.reps : "—";
+
   const card = document.createElement("div");
   card.className = "ex-card";
   let html =
@@ -90,20 +93,10 @@ export function renderWorkout(root, rerender) {
       + '<span class="muscle">Works: ' + esc(ex.muscle) + '</span></div>'
     + '<div class="inputs-row">'
       + '<div class="field"><label>Weight (kg)</label>'
-        + '<input id="wt" inputmode="decimal" placeholder="—" value="' + esc(entry.weight || "") + '"></div>'
+        + '<input id="wt" inputmode="decimal" placeholder="' + esc(wtPlaceholder) + '" value="' + esc(entry.weight || "") + '"></div>'
       + '<div class="field"><label>Reps</label>'
-        + '<input id="rp" inputmode="numeric" placeholder="—" value="' + esc(entry.reps || "") + '"></div>'
+        + '<input id="rp" inputmode="numeric" placeholder="' + esc(rpPlaceholder) + '" value="' + esc(entry.reps || "") + '"></div>'
     + '</div>';
-
-  // Last week reference
-  if (prevEntry && (prevEntry.weight || prevEntry.reps)) {
-    const doneCount = prevEntry.done ? prevEntry.done.filter(Boolean).length : 0;
-    html += '<div class="last-week">Last week: <b>' + esc(prevEntry.weight || "?") + ' kg × ' + esc(prevEntry.reps || "?") + ' reps</b>'
-      + (doneCount ? ' · ' + doneCount + '/' + (prevEntry.done ? prevEntry.done.length : ex.sets) + ' sets' : '')
-      + '</div>';
-  } else {
-    html += '<div class="last-week">No data from last week yet.</div>';
-  }
 
   // Set buttons
   html += '<div class="sets-grid' + (ex.sets === 2 ? " two-col" : "") + '">';

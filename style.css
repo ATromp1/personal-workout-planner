@@ -113,11 +113,7 @@ h1 { font-size: 21px; font-weight: 700; letter-spacing: -0.01em; }
   color: #1c1917; outline: none; text-align: center;
 }
 .field input:focus { border-color: #1c1917; background: #fff; }
-.last-week {
-  font-size: 11.5px; color: #a8a29e; margin: 6px 2px 14px;
-  text-align: center;
-}
-.last-week b { color: #57534e; font-weight: 600; }
+.field input::placeholder { color: #d6d3d1; font-weight: 500; }
 
 .sets-grid {
   display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;
